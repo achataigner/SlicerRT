@@ -669,21 +669,28 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
     return;
   }
 
-  scene->StartState(vtkMRMLScene::BatchProcessState);
-
-  // Get subject hierarchy item for the dose volume
-  vtkIdType doseShItemID = shNode->GetItemByDataNode(doseVolumeNode);
-  if (!doseShItemID)
+  if (!parameterNode->GetRealTime())
   {
-    vtkErrorMacro("CreateIsodoseSurfaces: Failed to get subject hierarchy item for dose volume '" << doseVolumeNode->GetName() << "'");
-    return;
+    scene->StartState(vtkMRMLScene::BatchProcessState);
   }
 
-  // Check existing isodose set and remove if exists
-  vtkIdType isodoseFolderItemID = this->GetIsodoseFolderItemID(doseVolumeNode);
-  if (isodoseFolderItemID)
+  // Get subject hierarchy item for the dose volume
+  vtkIdType doseShItemID, isodoseFolderItemID = 0;
+  if (!parameterNode->GetRealTime())
   {
-    shNode->RemoveItem(isodoseFolderItemID, true, true);
+    doseShItemID = shNode->GetItemByDataNode(doseVolumeNode);
+    if (!doseShItemID)
+    {
+      vtkErrorMacro("CreateIsodoseSurfaces: Failed to get subject hierarchy item for dose volume '" << doseVolumeNode->GetName() << "'");
+      return;
+    }
+
+    // Check existing isodose set and remove if exists
+    vtkIdType isodoseFolderItemID = this->GetIsodoseFolderItemID(doseVolumeNode);
+    if (isodoseFolderItemID)
+    {
+      shNode->RemoveItem(isodoseFolderItemID, true, true);
+    }
   }
 
   // Check if that absolute of relative values
@@ -703,9 +710,12 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
     vtkSlicerIsodoseModuleLogic::ISODOSE_RELATIVE_ROOT_HIERARCHY_NAME_POSTFIX :
     vtkSlicerIsodoseModuleLogic::ISODOSE_ROOT_HIERARCHY_NAME_POSTFIX;
 
-  // Setup isodose subject hierarchy folder
-  std::string isodoseFolderName = std::string(doseVolumeNode->GetName()) + isodoseName;
-  isodoseFolderItemID = shNode->CreateFolderItem(doseShItemID, isodoseFolderName);
+  if (!parameterNode->GetRealTime())
+  {
+    // Setup isodose subject hierarchy folder
+    std::string isodoseFolderName = std::string(doseVolumeNode->GetName()) + isodoseName;
+    isodoseFolderItemID = shNode->CreateFolderItem(doseShItemID, isodoseFolderName);
+  }
 
   // Get color table
   vtkMRMLColorTableNode* colorTableNode = parameterNode->GetColorTableNode();
@@ -775,9 +785,13 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
   vtkSmartPointer<vtkImageData> reslicedDoseVolumeImage = reslice->GetOutput();
 
   // Report progress
-  ++currentProgressStep;
-  double progress = (double)(currentProgressStep) / (double)progressStepCount;
-  this->InvokeEvent(vtkSlicerRtCommon::ProgressUpdated, (void*)&progress);
+  double progress = 0.0;
+  if (!parameterNode->GetRealTime())
+  {
+    ++currentProgressStep;
+    progress = (double)(currentProgressStep) / (double)progressStepCount;
+    this->InvokeEvent(vtkSlicerRtCommon::ProgressUpdated, (void*)&progress);
+  }
 
   // reference value for relative representation
   double referenceValue = parameterNode->GetReferenceDoseValue();
@@ -807,7 +821,7 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
     marchingCubes->ComputeNormalsOff();
     marchingCubes->Update();
 
-    vtkSmartPointer<vtkPolyData> isoPolyData= marchingCubes->GetOutput();
+    vtkSmartPointer<vtkPolyData> isoPolyData = marchingCubes->GetOutput();
     if (isoPolyData->GetNumberOfPoints() >= 1)
     {
       vtkNew<vtkTriangleFilter> triangleFilter;
@@ -846,44 +860,60 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
       transformPolyData->SetTransform(inputIJKToRASTransform);
       transformPolyData->Update();
 
-      vtkSmartPointer<vtkMRMLModelDisplayNode> displayNode = vtkSmartPointer<vtkMRMLModelDisplayNode>::New();
-      displayNode = vtkMRMLModelDisplayNode::SafeDownCast(scene->AddNode(displayNode));
-      displayNode->Visibility2DOn();
-      displayNode->VisibilityOn();
-      displayNode->SetColor(val[0], val[1], val[2]);
-      displayNode->SetOpacity(val[3]);
-
-      // Disable backface culling to make the back side of the model visible as well
-      displayNode->SetBackfaceCulling(0);
-
-      vtkNew<vtkMRMLModelNode> isodoseModelNode;
+      vtkSmartPointer<vtkMRMLModelNode> isodoseModelNode = nullptr;
       std::string isodoseModelNodeName = vtkSlicerIsodoseModuleLogic::ISODOSE_MODEL_NODE_NAME_PREFIX + strIsoLevel + doseUnitName;
-      isodoseModelNode->SetName(isodoseModelNodeName.c_str());
-      isodoseModelNode->SetSelectable(1);
-      isodoseModelNode->SetAttribute(vtkSlicerRtCommon::DICOMRTIMPORT_ISODOSE_MODEL_IDENTIFIER_ATTRIBUTE_NAME.c_str(), "1"); // The attribute above distinguishes isodoses from regular models
-      scene->AddNode(isodoseModelNode);
-      isodoseModelNode->SetAndObserveDisplayNodeID(displayNode->GetID());
+      if (parameterNode->GetRealTime())
+      {
+        // In real-time mode try to get the isodose model node by name to replace its content
+        isodoseModelNode = vtkMRMLModelNode::SafeDownCast(scene->GetFirstNodeByName(isodoseModelNodeName.c_str()));
+      }
+      if (!isodoseModelNode)
+      {
+        vtkMRMLModelDisplayNode* displayNode = vtkMRMLModelDisplayNode::SafeDownCast(scene->AddNewNodeByClass("vtkMRMLModelDisplayNode"));
+        displayNode->Visibility2DOn();
+        displayNode->VisibilityOn();
+        displayNode->SetColor(val[0], val[1], val[2]);
+        displayNode->SetOpacity(val[3]);
+        // Disable backface culling to make the back side of the model visible as well
+        displayNode->SetBackfaceCulling(0);
+
+        isodoseModelNode = vtkSmartPointer<vtkMRMLModelNode>::New();
+        isodoseModelNode->SetName(isodoseModelNodeName.c_str());
+        isodoseModelNode->SetSelectable(1);
+        isodoseModelNode->SetAttribute(vtkSlicerRtCommon::DICOMRTIMPORT_ISODOSE_MODEL_IDENTIFIER_ATTRIBUTE_NAME.c_str(), "1"); // The attribute above distinguishes isodoses from regular models
+        scene->AddNode(isodoseModelNode);
+        isodoseModelNode->SetAndObserveDisplayNodeID(displayNode->GetID());
+        shNode->RequestOwnerPluginSearch(isodoseModelNode); //TODO: Why is this needed?
+      }
       isodoseModelNode->SetAndObservePolyData(transformPolyData->GetOutput());
-      shNode->RequestOwnerPluginSearch(isodoseModelNode); //TODO: Why is this needed?
 
       // Put the new node in the isodose folder
-      vtkIdType isodoseModelItemID = shNode->GetItemByDataNode(isodoseModelNode);
-      if (isodoseModelItemID) // There is no automatic SH creation in automatic tests
+      if (!parameterNode->GetRealTime())
       {
-        shNode->SetItemParent(isodoseModelItemID, isodoseFolderItemID);
+        vtkIdType isodoseModelItemID = shNode->GetItemByDataNode(isodoseModelNode);
+        if (isodoseModelItemID) // There is no automatic SH creation in automatic tests
+        {
+          shNode->SetItemParent(isodoseModelItemID, isodoseFolderItemID);
+        }
       }
     }
 
     // Report progress
-    ++currentProgressStep;
-    progress = (double)(currentProgressStep) / (double)progressStepCount;
-    this->InvokeEvent(vtkSlicerRtCommon::ProgressUpdated, (void*)&progress);
+    if (!parameterNode->GetRealTime())
+    {
+      ++currentProgressStep;
+      progress = (double)(currentProgressStep) / (double)progressStepCount;
+      this->InvokeEvent(vtkSlicerRtCommon::ProgressUpdated, (void*)&progress);
+    }
   } // For all isodose levels
 
-  // Update dose color table based on isodose
-  this->UpdateDoseColorTableFromIsodose(parameterNode);
+  if (!parameterNode->GetRealTime())
+  {
+    // Update dose color table based on isodose
+    this->UpdateDoseColorTableFromIsodose(parameterNode);
 
-  scene->EndState(vtkMRMLScene::BatchProcessState);
+    scene->EndState(vtkMRMLScene::BatchProcessState);
+  }
 }
 
 //---------------------------------------------------------------------------

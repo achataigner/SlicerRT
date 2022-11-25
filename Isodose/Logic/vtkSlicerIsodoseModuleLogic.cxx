@@ -675,7 +675,7 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
   }
 
   // Get subject hierarchy item for the dose volume
-  vtkIdType doseShItemID, isodoseFolderItemID = 0;
+  vtkIdType doseShItemID = 0, isodoseFolderItemID = 0;
   if (!parameterNode->GetRealTime())
   {
     doseShItemID = shNode->GetItemByDataNode(doseVolumeNode);
@@ -822,6 +822,8 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
     marchingCubes->Update();
 
     vtkSmartPointer<vtkPolyData> isoPolyData = marchingCubes->GetOutput();
+    vtkSmartPointer<vtkMRMLModelNode> isodoseModelNode = nullptr;
+    std::string isodoseModelNodeName = vtkSlicerIsodoseModuleLogic::ISODOSE_MODEL_NODE_NAME_PREFIX + strIsoLevel + doseUnitName;
     if (isoPolyData->GetNumberOfPoints() >= 1)
     {
       vtkNew<vtkTriangleFilter> triangleFilter;
@@ -860,8 +862,6 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
       transformPolyData->SetTransform(inputIJKToRASTransform);
       transformPolyData->Update();
 
-      vtkSmartPointer<vtkMRMLModelNode> isodoseModelNode = nullptr;
-      std::string isodoseModelNodeName = vtkSlicerIsodoseModuleLogic::ISODOSE_MODEL_NODE_NAME_PREFIX + strIsoLevel + doseUnitName;
       if (parameterNode->GetRealTime())
       {
         // In real-time mode try to get the isodose model node by name to replace its content
@@ -895,6 +895,15 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
         {
           shNode->SetItemParent(isodoseModelItemID, isodoseFolderItemID);
         }
+      }
+    }
+    else if (parameterNode->GetRealTime())
+    {
+      // In real-time mode we need to clear the polydata when there is no output
+      isodoseModelNode = vtkMRMLModelNode::SafeDownCast(scene->GetFirstNodeByName(isodoseModelNodeName.c_str()));
+      if (isodoseModelNode)
+      {
+        isodoseModelNode->SetAndObservePolyData(nullptr);
       }
     }
 

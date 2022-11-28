@@ -903,7 +903,8 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
       isodoseModelNode = vtkMRMLModelNode::SafeDownCast(scene->GetFirstNodeByName(isodoseModelNodeName.c_str()));
       if (isodoseModelNode)
       {
-        isodoseModelNode->SetAndObservePolyData(nullptr);
+        vtkNew<vtkPolyData> emptyPolyData;
+        isodoseModelNode->SetAndObservePolyData(emptyPolyData);
       }
     }
 

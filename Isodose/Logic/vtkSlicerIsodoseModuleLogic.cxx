@@ -48,7 +48,6 @@
 
 // VTK includes
 #include <vtkColorTransferFunction.h>
-#include <vtkDecimatePro.h>
 #include <vtkGeneralTransform.h>
 #include <vtkImageChangeInformation.h>
 #include <vtkImageData.h>
@@ -830,18 +829,9 @@ void vtkSlicerIsodoseModuleLogic::CreateIsodoseSurfaces(vtkMRMLIsodoseNode* para
       triangleFilter->SetInputData(marchingCubes->GetOutput());
       triangleFilter->Update();
 
-      vtkNew<vtkDecimatePro> decimate;
-      decimate->SetInputData(triangleFilter->GetOutput());
-      decimate->SetTargetReduction(0.6);
-      decimate->SetFeatureAngle(60);
-      decimate->SplittingOff();
-      decimate->PreserveTopologyOn();
-      decimate->SetMaximumError(1);
-      decimate->Update();
-
       vtkNew<vtkWindowedSincPolyDataFilter> smootherSinc;
       smootherSinc->SetPassBand(0.1);
-      smootherSinc->SetInputData(decimate->GetOutput() );
+      smootherSinc->SetInputData(triangleFilter->GetOutput() );
       smootherSinc->SetNumberOfIterations(2);
       smootherSinc->FeatureEdgeSmoothingOff();
       smootherSinc->BoundarySmoothingOff();
